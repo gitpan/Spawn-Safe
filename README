@@ -7,7 +7,7 @@ EXAMPLE
      use Spawn::Safe;
      use Data::Dumper;
      my $results = spawn_safe({ argv => [qw{ ls -al /var/ }], timeout => 2 });
-     die Dumper $results
+     die Dumper $results;
 
     As a replacement for backticks:
 
@@ -91,18 +91,16 @@ FUNCTIONS
         may be incomplete.
 
     *   If the binary was executed successfully and ran to completion, the
-        keys 'exit_code, 'stdout, and 'stderr', will all be available.
+        keys 'exit_code', 'stdout, and 'stderr', will all be available.
 
     If passed invalid parameters, spawn_safe will croak.
 
-    Please note that when specifying a timeout, alarm() will be used in
-    order to implement the timeout. If the caller has an active SIGALRM
-    handler, it will be overwritten during the call to spawn_safe and then
-    restored afterwards. Any pending alarms should be cleared before calling
-    spawn_safe regardless of whether or not the there is an active SIGALRM
-    handler.
+    Please note that when specifying a timeout, alarm() is no longer used.
 
 CHANGES
+  Version 1.7 - 2010-07-09, jeagle
+    Clean up docs, stop using SIGALARM for timeouts.
+
   Version 1.7 - 2010-07-09, jeagle
     Clean up for release to CPAN.
 

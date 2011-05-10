@@ -22,14 +22,14 @@ ok( !$r->{'error'}, 'test1 error' );
 ok( $r->{'exit_code'} == 0, 'test1 exit code' );
 
 $r = spawn_safe( { argv => [ '/bin/thisdoesntexist/no/no/no' ], timeout => 100 } );
-ok( $r, 'test2' );
+ok( $r, 'test2 nonexistant' );
 ok( !$r->{'stdout'}, 'test2 stdout' );
 ok( !$r->{'stderr'}, 'test2 stderr' );
 ok( $r->{'error'}, 'test2 error' );
 ok( !$r->{'exit_code'}, 'test2 exit code' );
 
 $r = spawn_safe( { argv => [ '/bin/sleep', 20 ], timeout => 1 } );
-ok( $r, 'test3' );
+ok( $r, 'test3 timeout' );
 ok( !$r->{'stdout'}, 'test3 stdout' );
 ok( !$r->{'stderr'}, 'test3 stderr' );
 ok( $r->{'error'}, 'test3 error' );

@@ -4,11 +4,12 @@ use strict;
 use IO::Select;
 use POSIX ":sys_wait_h";
 use Carp qw/croak/;
+use Time::HiRes qw/ clock_gettime CLOCK_MONOTONIC /;
 
 use constant PIPE_READ_SIZE => 1024;
 
 use vars qw( $VERSION );
-$VERSION = '1.7';
+$VERSION = '1.8';
 
 BEGIN {
     use Exporter ();
@@ -29,7 +30,7 @@ A basic example:
  use Spawn::Safe;
  use Data::Dumper;
  my $results = spawn_safe({ argv => [qw{ ls -al /var/ }], timeout => 2 });
- die Dumper $results
+ die Dumper $results;
 
 As a replacement for backticks:
 
@@ -115,17 +116,13 @@ binary's stdout or stderr will also be made available, but since the binary was
 forcefully terminated, the data may be incomplete.
 
 =item * If the binary was executed successfully and ran to completion, the keys
-'exit_code, 'stdout, and 'stderr', will all be available.
+'exit_code', 'stdout, and 'stderr', will all be available.
 
 =back
 
 If passed invalid parameters, spawn_safe will croak.
 
-Please note that when specifying a timeout, alarm() will be used in order to
-implement the timeout. If the caller has an active SIGALRM handler, it will be
-overwritten during the call to spawn_safe and then restored afterwards. Any
-pending alarms should be cleared before calling spawn_safe regardless of whether
-or not the there is an active SIGALRM handler.
+Please note that when specifying a timeout, alarm() is no longer used.
 
 =cut
 
@@ -133,6 +130,7 @@ sub spawn_safe {
     my ( $params ) = @_;
     my @binary_and_params;
     my $timeout = undef;
+    my $start_time;
     my $new_env;
 
     if ( ref $params eq '' ) {
@@ -163,8 +161,8 @@ sub spawn_safe {
     my ( $parent_read_stderr, $child_write_stderr );
     my ( $parent_signal,      $child_wait );
     my ( $parent_read_errors, $child_write_errors );
-    my ( $read_stdout,        $read_stderr, $read_errors ) = ( '' ) x 3;
-    $timeout ||= undef;
+
+    my ( $read_stdout, $read_stderr, $read_errors ) = ( '' ) x 3;
 
     pipe( $parent_read_stdout, $child_write_stdout ) || die $!;
     pipe( $parent_read_stderr, $child_write_stderr ) || die $!;
@@ -206,27 +204,23 @@ sub spawn_safe {
         exit 42;
     }
 
-    eval {
-        close( $child_write_stdout );
-        close( $child_write_stderr );
-        close( $child_wait );
-        close( $child_write_errors );
-        # Looks silly, but we have to localize $SIG{'ALRM'} AND set it back to
-        # what it was when we were called, or else local will reset it to the
-        # default handler. 
-        local $SIG{'ALRM'} = $SIG{'ALRM'} || 'DEFAULT';
-        my $sel = IO::Select->new( $parent_read_stdout, $parent_read_stderr, $parent_read_errors );
-        close( $parent_signal );
-        if ( $timeout ) {
-            $SIG{'ALRM'} = sub { die "a\n" };    # \n required
-            alarm( $timeout );
-        }
+    close( $child_write_stdout );
+    close( $child_write_stderr );
+    close( $child_wait );
+    close( $child_write_errors );
+    my $sel = IO::Select->new( $parent_read_stdout, $parent_read_stderr, $parent_read_errors )
+        || die "Failed to create IO::Select object!";
+    close( $parent_signal );
 
-        while ( $sel->count() > 0 ) {
-            foreach my $readme ( $sel->can_read( undef ) ) {
+    # Don't bother calling clock_gettime if we're never going to time out.
+    $start_time = defined $timeout ? clock_gettime( CLOCK_MONOTONIC ) : 1;
+    while ( $sel->count() > 0 ) {
+        foreach my $readme ( $sel->can_read( $timeout ) ) {
+            # A timeout has occurred.
+            if ( $readme ) {
                 my $read;
                 my $r = sysread( $readme, $read, PIPE_READ_SIZE );
-                if ( $r < 1 ) {
+                if ( ( !defined $r ) || ( $r < 1 ) ) {
                     $sel->remove( $readme );
                 } elsif ( $readme == $parent_read_stdout ) {
                     $read_stdout .= $read;
@@ -239,37 +233,36 @@ sub spawn_safe {
                 }
             }
         }
-        waitpid( $child_pid, 0 );
-        if ( $timeout ) {
-            alarm( 0 );
+        if ( defined $timeout ) {
+            $timeout -= ( clock_gettime( CLOCK_MONOTONIC ) - $start_time );
+            if ( $timeout <= 0 ) {
+                undef $start_time;
+                last;
+            }
         }
-    };
+    }
+    # Did we timeout? undef $start_time is our timeout flag.
+    if ( defined $start_time ) {
+        waitpid( $child_pid, 0 );
+        $exit_code = $? >> 8;
+    }
 
-    $exit_code = $? >> 8;
     close( $parent_read_stdout );
     close( $parent_read_stderr );
     close( $parent_read_errors );
 
-    # Errors from eval?
-    if ( $@ ) {
+    if ( !defined $start_time ) {
         # If the child is still running, kill it.
         if ( waitpid( $child_pid, WNOHANG ) != -1 ) {
             kill( 9, $child_pid );
             waitpid( $child_pid, 0 );
         }
-        if ( !defined $exit_code ) {
-            $exit_code = $? >> 8;
-        }
 
-        if ( $@ eq "a\n" ) {
-            return {
-                'error' => 'timed out',
-                'stdout' => $read_stdout,
-                'stderr' => $read_stderr,
-            };
-        } else {
-            die 'Should not be here!';
-        }
+        return {
+            'error' => 'timed out',
+            'stdout' => $read_stdout,
+            'stderr' => $read_stderr,
+        };
     }
 
     if ( $read_errors ) {
@@ -283,6 +276,10 @@ sub spawn_safe {
 }
 
 =head1 CHANGES
+
+=head2 Version 1.7 - 2010-07-09, jeagle
+
+Clean up docs, stop using SIGALARM for timeouts.
 
 =head2 Version 1.7 - 2010-07-09, jeagle
 
