@@ -96,9 +96,19 @@ FUNCTIONS
     If passed invalid parameters, spawn_safe will croak.
 
     Please note that when specifying a timeout, alarm() is no longer used.
+    If the clock is stepped significantly backwards during a timeout, a
+    possibly false timeout error may be thrown. Timeout accuracy should be
+    within one second.
+
+    If a timeout does occur, the spawned program will be sent a SIGKILL
+    before spawn_safe returns.
 
 CHANGES
-  Version 1.7 - 2010-07-09, jeagle
+  Version 1.9 - 2011-05-10, jeagle
+    Don't use clock_gettime(), use time() and return a timeout if time steps
+    backwards.
+
+  Version 1.8 - 2011-05-09, jeagle
     Clean up docs, stop using SIGALARM for timeouts.
 
   Version 1.7 - 2010-07-09, jeagle

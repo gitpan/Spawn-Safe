@@ -4,12 +4,11 @@ use strict;
 use IO::Select;
 use POSIX ":sys_wait_h";
 use Carp qw/croak/;
-use Time::HiRes qw/ clock_gettime CLOCK_MONOTONIC /;
 
 use constant PIPE_READ_SIZE => 1024;
 
 use vars qw( $VERSION );
-$VERSION = '1.8';
+$VERSION = '1.9';
 
 BEGIN {
     use Exporter ();
@@ -122,7 +121,12 @@ forcefully terminated, the data may be incomplete.
 
 If passed invalid parameters, spawn_safe will croak.
 
-Please note that when specifying a timeout, alarm() is no longer used.
+Please note that when specifying a timeout, alarm() is no longer used. If the
+clock is stepped significantly backwards during a timeout, a possibly false
+timeout error may be thrown. Timeout accuracy should be within one second.
+
+If a timeout does occur, the spawned program will be sent a SIGKILL before
+spawn_safe returns.
 
 =cut
 
@@ -212,11 +216,11 @@ sub spawn_safe {
         || die "Failed to create IO::Select object!";
     close( $parent_signal );
 
-    # Don't bother calling clock_gettime if we're never going to time out.
-    $start_time = defined $timeout ? clock_gettime( CLOCK_MONOTONIC ) : 1;
+    # Don't bother calling time if we're never going to timeout.
+    $start_time = defined $timeout ? time() : 1;
     while ( $sel->count() > 0 ) {
         foreach my $readme ( $sel->can_read( $timeout ) ) {
-            # A timeout has occurred.
+            # Won't be set if there was a timeout.
             if ( $readme ) {
                 my $read;
                 my $r = sysread( $readme, $read, PIPE_READ_SIZE );
@@ -234,8 +238,19 @@ sub spawn_safe {
             }
         }
         if ( defined $timeout ) {
-            $timeout -= ( clock_gettime( CLOCK_MONOTONIC ) - $start_time );
-            if ( $timeout <= 0 ) {
+            # We do a little gymnastics here to check if the time has rolled
+            # backwards (ie, ntpd stepped the time backwards). If it went
+            # backwards, there's no way to tell how long we've waited, so
+            # it's probably safer to assume we've waited too long. Hopefully
+            # steps backwards will be infrequent, as ntpd usually slews rather
+            # than steps.
+            # If the time rolls over, we should end up with a hugely negative
+            # $timeout after subtraction, so that will probably trigger a
+            # timeout as well. Imperfect, but somewhat better than waiting
+            # forever. Fortunately this probably won't ever come up.
+            my $timenow = time();
+            $timeout -= ( $timenow - $start_time );
+            if ( $timenow < $start_time || $timeout <= 0 ) {
                 undef $start_time;
                 last;
             }
@@ -277,7 +292,12 @@ sub spawn_safe {
 
 =head1 CHANGES
 
-=head2 Version 1.7 - 2010-07-09, jeagle
+=head2 Version 1.9 - 2011-05-10, jeagle
+
+Don't use clock_gettime(), use time() and return a timeout if time steps
+backwards.
+
+=head2 Version 1.8 - 2011-05-09, jeagle
 
 Clean up docs, stop using SIGALARM for timeouts.
 
