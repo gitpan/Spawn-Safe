@@ -8,7 +8,7 @@ use Carp qw/croak/;
 use constant PIPE_READ_SIZE => 1024;
 
 use vars qw( $VERSION );
-$VERSION = '1.10';
+$VERSION = '2.000';
 
 BEGIN {
     use Exporter ();
@@ -127,6 +127,14 @@ timeout error may be thrown. Timeout accuracy should be within one second.
 
 If a timeout does occur, the spawned program will be sent a SIGKILL before
 spawn_safe returns.
+
+=head1 COMPATIBILITY
+
+This module attempts to work on MSWin32 but I've been unable to get it working
+due to strange issues with IO::Select. I haven't been able to track down the
+exact cause, so for now I don't believe this module functions on MSWin32.
+
+Linux and BSD are tested and supported platforms.
 
 =cut
 
@@ -294,11 +302,11 @@ sub spawn_safe {
 
 =head1 CHANGES
 
-=head2 Version 1.10 - 2011-05-11, jeagle
+=head2 Version 2.000 - 2011-05-12, jeagle
 
 Correct timeout handling. Attempt to correct unit tests for MSWin32, but
 there seems to be an issue with IO::Select preventing it from working
-properly.
+properly. Update docs for MSWin32.
 
 =head2 Version 1.9 - 2011-05-10, jeagle
 
