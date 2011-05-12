@@ -13,8 +13,11 @@ ok(1); # If we made it this far, we're ok.
 # its man page ( perldoc Test::More ) for help writing this test script.
 
 my $r;
+my $app;
 
-$r = spawn_safe( { argv => [ '/bin/ls', '/' ], timeout => 100 } );
+if ( $^O eq 'MSWin32' ) { $app = 'dir'; }
+else                    { $app = '/bin/ls'; }
+$r = spawn_safe( { argv => [ $app, '.' ], timeout => 100 } );
 ok( $r, 'test1' );
 ok( $r->{'stdout'}, 'test1 stdout' );
 ok( !$r->{'stderr'}, 'test1 stderr' );
@@ -28,7 +31,9 @@ ok( !$r->{'stderr'}, 'test2 stderr' );
 ok( $r->{'error'}, 'test2 error' );
 ok( !$r->{'exit_code'}, 'test2 exit code' );
 
-$r = spawn_safe( { argv => [ '/bin/sleep', 20 ], timeout => 1 } );
+if ( $^O eq 'MSWin32' ) { $app = 'pause'; }
+else                    { $app = '/bin/sleep'; }
+$r = spawn_safe( { argv => [ $app, 20 ], timeout => 1 } );
 ok( $r, 'test3 timeout' );
 ok( !$r->{'stdout'}, 'test3 stdout' );
 ok( !$r->{'stderr'}, 'test3 stderr' );

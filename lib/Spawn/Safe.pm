@@ -8,7 +8,7 @@ use Carp qw/croak/;
 use constant PIPE_READ_SIZE => 1024;
 
 use vars qw( $VERSION );
-$VERSION = '1.9';
+$VERSION = '1.10';
 
 BEGIN {
     use Exporter ();
@@ -218,14 +218,16 @@ sub spawn_safe {
 
     # Don't bother calling time if we're never going to timeout.
     $start_time = defined $timeout ? time() : 1;
-    while ( $sel->count() > 0 ) {
-        foreach my $readme ( $sel->can_read( $timeout ) ) {
+    my $select_time = $timeout;
+    MAIN_WHILE: while ( 1 ) {
+        foreach my $readme ( $sel->can_read( $select_time ) ) {
             # Won't be set if there was a timeout.
             if ( $readme ) {
                 my $read;
                 my $r = sysread( $readme, $read, PIPE_READ_SIZE );
                 if ( ( !defined $r ) || ( $r < 1 ) ) {
                     $sel->remove( $readme );
+                    if ( $sel->count() == 0 ) { last MAIN_WHILE; }
                 } elsif ( $readme == $parent_read_stdout ) {
                     $read_stdout .= $read;
                 } elsif ( $readme == $parent_read_stderr ) {
@@ -249,8 +251,8 @@ sub spawn_safe {
             # timeout as well. Imperfect, but somewhat better than waiting
             # forever. Fortunately this probably won't ever come up.
             my $timenow = time();
-            $timeout -= ( $timenow - $start_time );
-            if ( $timenow < $start_time || $timeout <= 0 ) {
+            $select_time = $timeout - ( $timenow - $start_time );
+            if ( $timenow < $start_time || $select_time <= 0 ) {
                 undef $start_time;
                 last;
             }
@@ -291,6 +293,12 @@ sub spawn_safe {
 }
 
 =head1 CHANGES
+
+=head2 Version 1.10 - 2011-05-11, jeagle
+
+Correct timeout handling. Attempt to correct unit tests for MSWin32, but
+there seems to be an issue with IO::Select preventing it from working
+properly.
 
 =head2 Version 1.9 - 2011-05-10, jeagle
 

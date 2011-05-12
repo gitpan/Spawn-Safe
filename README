@@ -104,6 +104,11 @@ FUNCTIONS
     before spawn_safe returns.
 
 CHANGES
+  Version 1.10 - 2011-05-11, jeagle
+    Correct timeout handling. Attempt to correct unit tests for MSWin32, but
+    there seems to be an issue with IO::Select preventing it from working
+    properly.
+
   Version 1.9 - 2011-05-10, jeagle
     Don't use clock_gettime(), use time() and return a timeout if time steps
     backwards.
