@@ -8,7 +8,7 @@ use Carp qw/croak/;
 use constant PIPE_READ_SIZE => 1024;
 
 use vars qw( $VERSION );
-$VERSION = '2.000';
+$VERSION = '2.001';
 
 BEGIN {
     use Exporter ();
@@ -192,21 +192,21 @@ sub spawn_safe {
         close( $parent_read_stderr );
         close( $parent_read_errors );
 
-        # Perl 5.8 lets us do this...
-        #open( STDOUT, '>&', $child_write_stdout );
-        #open( STDERR, '>&', $child_write_stderr );
+        my ( $dummy_stdin_read, $dummy_stdin_write );
+        pipe( $dummy_stdin_read, $dummy_stdin_write ) || goto CHILD_ERR;
 
-        # ...but to be 5.6 compatible, we do it the old way.
-        open( STDOUT, '>&' . fileno( $child_write_stdout ) );
-        open( STDERR, '>&' . fileno( $child_write_stderr ) );
+        # Be 5.6 compatible and do it the old way.
+        open( STDIN,  '<&' . fileno( $dummy_stdin_read   ) ) || goto CHILD_ERR;
+        open( STDOUT, '>&' . fileno( $child_write_stdout ) ) || goto CHILD_ERR;
+        open( STDERR, '>&' . fileno( $child_write_stderr ) ) || goto CHILD_ERR;
+
+        if ( $new_env ) { %ENV = %{ $new_env }; }
 
         <$child_wait>;
         close( $child_wait );
-        if ( $new_env ) {
-            %ENV = %{ $new_env };
-        }
 
         { exec { $binary_and_params[0] } @binary_and_params; }
+        CHILD_ERR:
         print $child_write_errors $!;
         close( $child_write_errors );
         close( $child_write_stdout );
@@ -301,6 +301,10 @@ sub spawn_safe {
 }
 
 =head1 CHANGES
+
+=head2 Version 2.001 - 2011-06-13, jeagle
+
+Give the spawned program its own STDIN.
 
 =head2 Version 2.000 - 2011-05-12, jeagle
 

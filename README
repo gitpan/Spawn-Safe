@@ -103,11 +103,22 @@ FUNCTIONS
     If a timeout does occur, the spawned program will be sent a SIGKILL
     before spawn_safe returns.
 
+COMPATIBILITY
+    This module attempts to work on MSWin32 but I've been unable to get it
+    working due to strange issues with IO::Select. I haven't been able to
+    track down the exact cause, so for now I don't believe this module
+    functions on MSWin32.
+
+    Linux and BSD are tested and supported platforms.
+
 CHANGES
-  Version 1.10 - 2011-05-11, jeagle
+  Version 2.001 - 2011-06-13, jeagle
+    Give the spawned program its own STDIN.
+
+  Version 2.000 - 2011-05-12, jeagle
     Correct timeout handling. Attempt to correct unit tests for MSWin32, but
     there seems to be an issue with IO::Select preventing it from working
-    properly.
+    properly. Update docs for MSWin32.
 
   Version 1.9 - 2011-05-10, jeagle
     Don't use clock_gettime(), use time() and return a timeout if time steps
