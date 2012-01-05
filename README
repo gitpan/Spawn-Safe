@@ -58,7 +58,7 @@ FUNCTIONS
         made, altered, and then passed in as a whole, eg:
 
          my %new_env = %ENV;
-         %new_env{'TMP'} = '/var/tmp/';
+         $new_env{'TMP'} = '/var/tmp/';
          my $r = spawn_safe( { argv => 'ls', env => \%new_env } );
 
         Please note that if a new environment is specified, the new binary's
@@ -112,6 +112,12 @@ COMPATIBILITY
     Linux and BSD are tested and supported platforms.
 
 CHANGES
+  Version 2.002 - 2012-01-04, jeagle
+    Correct documentation (RT#72831, thanks Stas)
+
+    Update unit tests to specify number of tests instead of using no_plan,
+    otherwse CPAN Testers reports tests fail.
+
   Version 2.001 - 2011-06-13, jeagle
     Give the spawned program its own STDIN.
 

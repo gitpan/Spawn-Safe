@@ -3,7 +3,7 @@
 
 #########################
 
-use Test::More qw/ no_plan /;
+use Test::More tests => 16;
 use Spawn::Safe;
 ok(1); # If we made it this far, we're ok.
 

@@ -8,7 +8,7 @@ use Carp qw/croak/;
 use constant PIPE_READ_SIZE => 1024;
 
 use vars qw( $VERSION );
-$VERSION = '2.001';
+$VERSION = '2.002';
 
 BEGIN {
     use Exporter ();
@@ -82,7 +82,7 @@ environment will be overwritten as a whole. To alter only one variable, a copy
 of the enviornment must be made, altered, and then passed in as a whole, eg:
 
  my %new_env = %ENV;
- %new_env{'TMP'} = '/var/tmp/';
+ $new_env{'TMP'} = '/var/tmp/';
  my $r = spawn_safe( { argv => 'ls', env => \%new_env } );
 
 Please note that if a new environment is specified, the new binary's
@@ -301,6 +301,13 @@ sub spawn_safe {
 }
 
 =head1 CHANGES
+
+=head2 Version 2.002 - 2012-01-04, jeagle
+
+Correct documentation (RT#72831, thanks Stas)
+
+Update unit tests to specify number of tests instead of using no_plan,
+otherwse CPAN Testers reports tests fail.
 
 =head2 Version 2.001 - 2011-06-13, jeagle
 
