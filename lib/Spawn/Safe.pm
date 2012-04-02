@@ -8,7 +8,7 @@ use Carp qw/croak/;
 use constant PIPE_READ_SIZE => 1024;
 
 use vars qw( $VERSION );
-$VERSION = '2.002';
+$VERSION = '2.003';
 
 BEGIN {
     use Exporter ();
@@ -195,6 +195,10 @@ sub spawn_safe {
         my ( $dummy_stdin_read, $dummy_stdin_write );
         pipe( $dummy_stdin_read, $dummy_stdin_write ) || goto CHILD_ERR;
 
+        if ( tied( *STDIN  ) ) { untie *STDIN;  }
+        if ( tied( *STDOUT ) ) { untie *STDOUT; }
+        if ( tied( *STDERR ) ) { untie *STDERR; }
+
         # Be 5.6 compatible and do it the old way.
         open( STDIN,  '<&' . fileno( $dummy_stdin_read   ) ) || goto CHILD_ERR;
         open( STDOUT, '>&' . fileno( $child_write_stdout ) ) || goto CHILD_ERR;
@@ -301,6 +305,11 @@ sub spawn_safe {
 }
 
 =head1 CHANGES
+
+=head2 Version 2.003 - 2012-04-01, jeagle
+
+Untie any tied filehandles before we re-open them to ourselves to work around
+any weird tie behavior (should fix issues running under FCGI). Thanks Charly.
 
 =head2 Version 2.002 - 2012-01-04, jeagle
 

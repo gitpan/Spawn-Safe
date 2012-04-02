@@ -112,6 +112,11 @@ COMPATIBILITY
     Linux and BSD are tested and supported platforms.
 
 CHANGES
+  Version 2.003 - 2012-04-01, jeagle
+    Untie any tied filehandles before we re-open them to ourselves to work
+    around any weird tie behavior (should fix issues running under FCGI).
+    Thanks Charly.
+
   Version 2.002 - 2012-01-04, jeagle
     Correct documentation (RT#72831, thanks Stas)
 
