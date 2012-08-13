@@ -8,7 +8,7 @@ use Carp qw/croak/;
 use constant PIPE_READ_SIZE => 1024;
 
 use vars qw( $VERSION );
-$VERSION = '2.003';
+$VERSION = '2.004';
 
 BEGIN {
     use Exporter ();
@@ -304,7 +304,15 @@ sub spawn_safe {
     };
 }
 
+=head1 LICENSE
+
+This module is licensed under the same terms as Perl itself.
+
 =head1 CHANGES
+
+=head2 Version 2.004 - 2012-08-13, jeagle
+
+Include license. Oops.
 
 =head2 Version 2.003 - 2012-04-01, jeagle
 
