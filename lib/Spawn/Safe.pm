@@ -8,7 +8,7 @@ use Carp qw/croak/;
 use constant PIPE_READ_SIZE => 1024;
 
 use vars qw( $VERSION );
-$VERSION = '2.004';
+$VERSION = '2.005';
 
 BEGIN {
     use Exporter ();
@@ -28,7 +28,7 @@ A basic example:
 
  use Spawn::Safe;
  use Data::Dumper;
- my $results = spawn_safe({ argv => [qw{ ls -al /var/ }], timeout => 2 });
+ my $results = spawn_safe({ argv => [ 'ls', '-al', '/var/' ], timeout => 2 });
  die Dumper $results;
 
 As a replacement for backticks:
@@ -43,13 +43,16 @@ Spawn::Safe is a module designed to make "safe" calls to outside binaries
 easier and more reliable. Spawn::Safe never invokes a shell (unless the shell
 is explicitly requested), so escaping for the shell is not a concern. An
 optional timeout is made available, so scripts will not hang forever, and the
-caller is able to retrieve both stdout and stderr.
+caller is able to retrieve both stdout and stderr. An optional string can be
+passed to the executed program's standard input stream.
 
 =head1 FUNCTIONS
 
 =head2 spawn_safe
 
-Spawn the specified binary, capture its output, and put a cap on its runtime.
+Spawn (via fork and exec) the specified binary and capture its output.
+
+=head3 Parameters
 
 If passed a single scalar, spawn_safe will assume that to be the the target
 binary, and execute it without a limit on runtime.
@@ -58,14 +61,21 @@ If passed an array, spawn_safe will execute the first element of the array as
 the target binary, with the remaining elements passed as parameters to the
 target binary, without a limit on runtime.
 
-If passed a hash reference, the following keys will be used:
+The preferred mode is to pass in a single hash reference. When called this
+way, the following keys are available:
 
 =over 4
 
 =item * argv
 
-A scalar containing the name of the binary, or an array reference containing
-the binary and all of its parameters, to be executed.
+Either a string containing the name of the binary which will be called with no
+parameters:
+
+ my $r = spawn_safe({ argv => 'ls' });
+
+Or an array reference containing the binary and all of its parameters:
+
+ my $r = spawn_safe({ argv => [ 'ls', '-al' ] });
 
 =item * timeout
 
@@ -83,7 +93,7 @@ of the enviornment must be made, altered, and then passed in as a whole, eg:
 
  my %new_env = %ENV;
  $new_env{'TMP'} = '/var/tmp/';
- my $r = spawn_safe( { argv => 'ls', env => \%new_env } );
+ my $r = spawn_safe({ argv => 'ls', env => \%new_env });
 
 Please note that if a new environment is specified, the new binary's
 environment will be altered before the call to exec() (but after the fork(),
@@ -93,12 +103,16 @@ part of the environment needed to launch the binary (eg, by changing PATH,
 LD_LIBRARY_PATH, etc), these new variables will need to be set such that the
 binary can be executed successfully.
 
+=item * stdin
+
+A string to be passed to the target binary's standard input stream. The string
+will be written into the stream and then the stream will be closed.
+
+ my $r = spawn_safe({ argv => [ '/usr/bin/tr', 'a', 'b' ], stdin => 'aaa' });
+
 =back
 
-The current PATH will be searched for the binary, if available. Open
-filehandles are subject to Perl's standard close-on-exec behavior. A shell will
-not be invoked unless explicitly defined as the target binary, as such output
-redirection and other shell features are unavailable.
+=head3 Return value
 
 A hash reference will be returned containing one of the following sets of
 values:
@@ -118,6 +132,16 @@ forcefully terminated, the data may be incomplete.
 'exit_code', 'stdout, and 'stderr', will all be available.
 
 =back
+
+The key "exit_zero" will always be present, which is true if the binary is
+executed successfully and exited with a code of zero.
+
+=head3 Notes
+
+The current PATH will be searched for the binary, if available. Open
+filehandles are subject to Perl's standard close-on-exec behavior. A shell will
+not be invoked unless explicitly defined as the target binary, as such output
+redirection and other shell features are unavailable.
 
 If passed invalid parameters, spawn_safe will croak.
 
@@ -141,9 +165,11 @@ Linux and BSD are tested and supported platforms.
 sub spawn_safe {
     my ( $params ) = @_;
     my @binary_and_params;
-    my $timeout = undef;
+    my $timeout;
     my $start_time;
     my $new_env;
+    my $for_stdin;
+    my $for_stdin_offset = 0;
 
     if ( ref $params eq '' ) {
         @binary_and_params = @_;
@@ -164,6 +190,7 @@ sub spawn_safe {
         }
 
         $timeout = $params->{'timeout'} || undef;
+        $for_stdin = $params->{'stdin'} || undef;
     } else {
         croak "Invalid parameters";
     }
@@ -173,12 +200,14 @@ sub spawn_safe {
     my ( $parent_read_stderr, $child_write_stderr );
     my ( $parent_signal,      $child_wait );
     my ( $parent_read_errors, $child_write_errors );
+    my ( $child_read_stdin,   $parent_write_stdin );
 
     my ( $read_stdout, $read_stderr, $read_errors ) = ( '' ) x 3;
 
     pipe( $parent_read_stdout, $child_write_stdout ) || die $!;
     pipe( $parent_read_stderr, $child_write_stderr ) || die $!;
     pipe( $parent_read_errors, $child_write_errors ) || die $!;
+    pipe( $child_read_stdin,   $parent_write_stdin ) || die $!;
     pipe( $child_wait,         $parent_signal )      || die $!;
 
     $child_pid = fork();
@@ -191,18 +220,16 @@ sub spawn_safe {
         close( $parent_read_stdout );
         close( $parent_read_stderr );
         close( $parent_read_errors );
-
-        my ( $dummy_stdin_read, $dummy_stdin_write );
-        pipe( $dummy_stdin_read, $dummy_stdin_write ) || goto CHILD_ERR;
+        close( $parent_write_stdin );
 
         if ( tied( *STDIN  ) ) { untie *STDIN;  }
         if ( tied( *STDOUT ) ) { untie *STDOUT; }
         if ( tied( *STDERR ) ) { untie *STDERR; }
 
         # Be 5.6 compatible and do it the old way.
-        open( STDIN,  '<&' . fileno( $dummy_stdin_read   ) ) || goto CHILD_ERR;
         open( STDOUT, '>&' . fileno( $child_write_stdout ) ) || goto CHILD_ERR;
         open( STDERR, '>&' . fileno( $child_write_stderr ) ) || goto CHILD_ERR;
+        open( STDIN,  '<&' . fileno( $child_read_stdin   ) ) || goto CHILD_ERR;
 
         if ( $new_env ) { %ENV = %{ $new_env }; }
 
@@ -222,32 +249,48 @@ sub spawn_safe {
 
     close( $child_write_stdout );
     close( $child_write_stderr );
+    close( $child_read_stdin );
     close( $child_wait );
     close( $child_write_errors );
     my $sel = IO::Select->new( $parent_read_stdout, $parent_read_stderr, $parent_read_errors )
         || die "Failed to create IO::Select object!";
+    my $wsel;
+
+    if ( defined $for_stdin ) {
+        $wsel = IO::Select->new( $parent_write_stdin )
+            || die "Failed to create IO::Select object!";
+    }
     close( $parent_signal );
 
     # Don't bother calling time if we're never going to timeout.
     $start_time = defined $timeout ? time() : 1;
     my $select_time = $timeout;
     MAIN_WHILE: while ( 1 ) {
-        foreach my $readme ( $sel->can_read( $select_time ) ) {
-            # Won't be set if there was a timeout.
-            if ( $readme ) {
-                my $read;
-                my $r = sysread( $readme, $read, PIPE_READ_SIZE );
-                if ( ( !defined $r ) || ( $r < 1 ) ) {
-                    $sel->remove( $readme );
-                    if ( $sel->count() == 0 ) { last MAIN_WHILE; }
-                } elsif ( $readme == $parent_read_stdout ) {
-                    $read_stdout .= $read;
-                } elsif ( $readme == $parent_read_stderr ) {
-                    $read_stderr .= $read;
-                } elsif ( $readme == $parent_read_errors ) {
-                    $read_errors .= $read;
-                } else {
-                    die 'Should not be here!';
+        my ( $readus, $writeus, undef ) = IO::Select::select( $sel, $wsel, undef, $select_time );
+        foreach my $readme ( @{ $readus } ) {
+            my $read;
+            my $r = sysread( $readme, $read, PIPE_READ_SIZE );
+            if ( ( !defined $r ) || ( $r < 1 ) ) {
+                $sel->remove( $readme );
+                if ( $sel->count() == 0 ) { last MAIN_WHILE; }
+            } elsif ( $readme == $parent_read_stdout ) {
+                $read_stdout .= $read;
+            } elsif ( $readme == $parent_read_stderr ) {
+                $read_stderr .= $read;
+            } elsif ( $readme == $parent_read_errors ) {
+                $read_errors .= $read;
+            } else {
+                die 'Should not be here!';
+            }
+        }
+        foreach my $writeme ( @{ $writeus } ) {
+            if ( $writeme == $parent_write_stdin ) {
+                my $write_size = PIPE_READ_SIZE <= length( $for_stdin ) ? PIPE_READ_SIZE : length( $for_stdin );
+                syswrite( $parent_write_stdin, $for_stdin, $write_size, $for_stdin_offset );
+                $for_stdin_offset += $write_size;
+                if ( $for_stdin_offset >= length( $for_stdin ) ) {
+                    $wsel->remove( $parent_write_stdin );
+                    close( $parent_write_stdin );
                 }
             }
         }
@@ -291,16 +334,18 @@ sub spawn_safe {
             'error' => 'timed out',
             'stdout' => $read_stdout,
             'stderr' => $read_stderr,
+            'exit_zero' => 0,
         };
     }
 
     if ( $read_errors ) {
-        return { 'error' => $read_errors };
+        return { 'error' => $read_errors, 'exit_zero' => 0 };
     }
     return {
         'exit_code' => $exit_code,
         'stdout'    => $read_stdout,
         'stderr'    => $read_stderr,
+        'exit_zero' => $exit_code == 0,
     };
 }
 
@@ -309,6 +354,10 @@ sub spawn_safe {
 This module is licensed under the same terms as Perl itself.
 
 =head1 CHANGES
+
+=head2 Version 2.005 - 2013-11-11, jeagle
+
+Add stdin option, clarify docs, add exit_zero return flag.
 
 =head2 Version 2.004 - 2012-08-13, jeagle
 
