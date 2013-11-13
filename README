@@ -137,6 +137,10 @@ LICENSE
     This module is licensed under the same terms as Perl itself.
 
 CHANGES
+  Version 2.006 - 2013-11-12, jeagle
+    Modify PIPE_BUF_SIZE to be more conservative to ensure non-blocking
+    writes on all OSs.
+
   Version 2.005 - 2013-11-11, jeagle
     Add stdin option, clarify docs, add exit_zero return flag.
 

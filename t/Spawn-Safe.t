@@ -3,7 +3,7 @@
 
 #########################
 
-use Test::More tests => 18;
+use Test::More tests => 20;
 use Spawn::Safe;
 ok(1); # If we made it this far, we're ok.
 
@@ -39,7 +39,9 @@ ok( !$r->{'stdout'}, 'test3 stdout' );
 ok( !$r->{'stderr'}, 'test3 stderr' );
 ok( $r->{'error'}, 'test3 error' );
 ok( !$r->{'exit_code'}, 'test3 exit code' );
+ok( !$r->{exit_zero}, 'test3 exit_zero' );
 
 $r = spawn_safe( { argv => [ 'cat' ], stdin => 'a' x 16385, timeout => 10 } );
 ok( $r, 'test4 pass stdin' );
 ok( length( $r->{stdout} ) == 16385, 'test4 stdout length' );
+ok( $r->{exit_zero}, 'test4 exit_zero' );

@@ -5,10 +5,11 @@ use IO::Select;
 use POSIX ":sys_wait_h";
 use Carp qw/croak/;
 
-use constant PIPE_READ_SIZE => 1024;
+# Based off of the smallest PIPE_BUF I've seen.
+use constant PIPE_BUF_SIZE => 512;
 
 use vars qw( $VERSION );
-$VERSION = '2.005';
+$VERSION = '2.006';
 
 BEGIN {
     use Exporter ();
@@ -189,8 +190,8 @@ sub spawn_safe {
             $new_env = $params->{'env'};
         }
 
-        $timeout = $params->{'timeout'} || undef;
-        $for_stdin = $params->{'stdin'} || undef;
+        $timeout   = $params->{'timeout'} || undef;
+        $for_stdin = $params->{'stdin'}   || undef;
     } else {
         croak "Invalid parameters";
     }
@@ -222,22 +223,22 @@ sub spawn_safe {
         close( $parent_read_errors );
         close( $parent_write_stdin );
 
-        if ( tied( *STDIN  ) ) { untie *STDIN;  }
+        if ( tied( *STDIN ) )  { untie *STDIN; }
         if ( tied( *STDOUT ) ) { untie *STDOUT; }
         if ( tied( *STDERR ) ) { untie *STDERR; }
 
         # Be 5.6 compatible and do it the old way.
         open( STDOUT, '>&' . fileno( $child_write_stdout ) ) || goto CHILD_ERR;
         open( STDERR, '>&' . fileno( $child_write_stderr ) ) || goto CHILD_ERR;
-        open( STDIN,  '<&' . fileno( $child_read_stdin   ) ) || goto CHILD_ERR;
+        open( STDIN,  '<&' . fileno( $child_read_stdin ) )   || goto CHILD_ERR;
 
-        if ( $new_env ) { %ENV = %{ $new_env }; }
+        if ( $new_env ) { %ENV = %{$new_env}; }
 
         <$child_wait>;
         close( $child_wait );
 
         { exec { $binary_and_params[0] } @binary_and_params; }
-        CHILD_ERR:
+       CHILD_ERR:
         print $child_write_errors $!;
         close( $child_write_errors );
         close( $child_write_stdout );
@@ -253,44 +254,50 @@ sub spawn_safe {
     close( $child_wait );
     close( $child_write_errors );
     my $sel = IO::Select->new( $parent_read_stdout, $parent_read_stderr, $parent_read_errors )
-        || die "Failed to create IO::Select object!";
+     || die "Failed to create IO::Select object!";
     my $wsel;
 
     if ( defined $for_stdin ) {
         $wsel = IO::Select->new( $parent_write_stdin )
-            || die "Failed to create IO::Select object!";
+         || die "Failed to create IO::Select object!";
+    } else {
+        close( $parent_write_stdin );
     }
     close( $parent_signal );
 
     # Don't bother calling time if we're never going to timeout.
     $start_time = defined $timeout ? time() : 1;
     my $select_time = $timeout;
-    MAIN_WHILE: while ( 1 ) {
+   MAIN_WHILE: while ( 1 ) {
         my ( $readus, $writeus, undef ) = IO::Select::select( $sel, $wsel, undef, $select_time );
-        foreach my $readme ( @{ $readus } ) {
-            my $read;
-            my $r = sysread( $readme, $read, PIPE_READ_SIZE );
-            if ( ( !defined $r ) || ( $r < 1 ) ) {
-                $sel->remove( $readme );
-                if ( $sel->count() == 0 ) { last MAIN_WHILE; }
-            } elsif ( $readme == $parent_read_stdout ) {
-                $read_stdout .= $read;
-            } elsif ( $readme == $parent_read_stderr ) {
-                $read_stderr .= $read;
-            } elsif ( $readme == $parent_read_errors ) {
-                $read_errors .= $read;
-            } else {
-                die 'Should not be here!';
+        if ( ref $readus eq 'ARRAY' ) {
+            foreach my $readme ( @{$readus} ) {
+                my $read;
+                my $r = sysread( $readme, $read, PIPE_BUF_SIZE );
+                if ( ( !defined $r ) || ( $r < 1 ) ) {
+                    $sel->remove( $readme );
+                    if ( $sel->count() == 0 ) { last MAIN_WHILE; }
+                } elsif ( $readme == $parent_read_stdout ) {
+                    $read_stdout .= $read;
+                } elsif ( $readme == $parent_read_stderr ) {
+                    $read_stderr .= $read;
+                } elsif ( $readme == $parent_read_errors ) {
+                    $read_errors .= $read;
+                } else {
+                    die 'Should not be here!';
+                }
             }
         }
-        foreach my $writeme ( @{ $writeus } ) {
-            if ( $writeme == $parent_write_stdin ) {
-                my $write_size = PIPE_READ_SIZE <= length( $for_stdin ) ? PIPE_READ_SIZE : length( $for_stdin );
-                syswrite( $parent_write_stdin, $for_stdin, $write_size, $for_stdin_offset );
-                $for_stdin_offset += $write_size;
-                if ( $for_stdin_offset >= length( $for_stdin ) ) {
-                    $wsel->remove( $parent_write_stdin );
-                    close( $parent_write_stdin );
+        if ( ref $writeus eq 'ARRAY' ) {
+            foreach my $writeme ( @{$writeus} ) {
+                if ( $writeme == $parent_write_stdin ) {
+                    my $write_size = PIPE_BUF_SIZE <= length( $for_stdin ) ? PIPE_BUF_SIZE : length( $for_stdin );
+                    syswrite( $parent_write_stdin, $for_stdin, $write_size, $for_stdin_offset );
+                    $for_stdin_offset += $write_size;
+                    if ( $for_stdin_offset >= length( $for_stdin ) ) {
+                        $wsel->remove( $parent_write_stdin );
+                        close( $parent_write_stdin );
+                    }
                 }
             }
         }
@@ -331,15 +338,18 @@ sub spawn_safe {
         }
 
         return {
-            'error' => 'timed out',
-            'stdout' => $read_stdout,
-            'stderr' => $read_stderr,
+            'error'     => 'timed out',
+            'stdout'    => $read_stdout,
+            'stderr'    => $read_stderr,
             'exit_zero' => 0,
         };
     }
 
     if ( $read_errors ) {
-        return { 'error' => $read_errors, 'exit_zero' => 0 };
+        return {
+            'error'     => $read_errors,
+            'exit_zero' => 0,
+        };
     }
     return {
         'exit_code' => $exit_code,
@@ -354,6 +364,11 @@ sub spawn_safe {
 This module is licensed under the same terms as Perl itself.
 
 =head1 CHANGES
+
+=head2 Version 2.006 - 2013-11-12, jeagle
+
+Modify PIPE_BUF_SIZE to be more conservative to ensure non-blocking writes on
+all OSs.
 
 =head2 Version 2.005 - 2013-11-11, jeagle
 
